@@ -11,6 +11,7 @@ Whilst the included demon class is copied from here: http://www.jejik.com/articl
 
 
 # Requrirements
+Python 2.7
 ## training
 numpy (1.9.1)
 Theano (0.6.0)
