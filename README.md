@@ -19,6 +19,8 @@ matplotlib (1.4.2)
 scipy (0.15.1)
 scikit-learn (0.15.2)
 
+Consult the command line parameter -h for help.
+
 # Examples
 During training, a pickled state of the network is written to *output_dir* whilst .pgn and .pnm files are (over-)written in *temp_dir*.
 
