@@ -7,7 +7,7 @@ The code was written for accomplishing my diploma thesis:
 and is not optimized, no unit tests and some clutter.
 
 The file lookpy_rgb.tcl is derived of https://www2.informatik.uni-hamburg.de/~weber/code/lookpy.tcl and slightly extended to display .pnm files too.
-whilst the included demon class is copied from here: http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python.
+Whilst the included demon class is copied from here: http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python.
 
 
 # Requrirements
