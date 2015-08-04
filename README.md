@@ -23,7 +23,7 @@ scikit-learn (0.15.2)
 During training, a pickled state of the network is written to *output_dir* whilst .pgn and .pnm files are (over-)written in *temp_dir*.
 
 ## Training
-Training the RGC model with 13*13*2 visible, 8*8 hidden units and with red and green components of RGB as training input:
+Training the RGC model with 13\*13\*2 visible, 8\*8 hidden units and with red and green components of RGB as training input:
 
 python train.py -odir *output_dir* -tdir *temp_dir* -datadir *images_dir* -ncpu 3 -th -outn 10 -btchn 320 -mode rg    rgc   -vis 13 -hid 8  -k 5e-4 -clip -p .5 -lr .03
 
