@@ -43,15 +43,18 @@ def prepare_patch(
 	else:
 		raise 'mode not any of {rgb,rg,rg_vs_b,lum}!'
 	if subtract_mean:
-		patch -= N.mean(patch)
+		patch -= N.mean(patch, dtype=patch.dtype)
 	else:
-		patch /= 2.
+		patch /= 1.5#2.
 	if N.random.randint(0, 100) > 100-chance_to_sawp_axes:
 		patch = N.swapaxes(patch, 0, 1)
 	if mode=='lum':
 		patch = patch.reshape(patch.shape[0]*patch.shape[1])
 		return N.copy(patch)
 	else:
+		'''remove alpha channel'''
+		if patch.shape[2] > 3:
+			patch = patch.T[0:3].T
 		patch = patch.reshape(patch.shape[0]*patch.shape[1], 3)
 		if mode=='rgb':
 			return N.copy(N.concatenate([patch.T[0].T, patch.T[1].T, patch.T[2].T]))

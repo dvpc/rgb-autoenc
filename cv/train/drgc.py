@@ -27,7 +27,7 @@ import numpy as N
 
 
 
-def train_rgc(
+def train_drgc(
 	**kwargs
 	):
 	if kwargs['rgcfile'] is None:
@@ -39,24 +39,18 @@ def train_rgc(
 		kwargs['mode'] = wld_args['mode']
 		kwargs['vis'] = wld_args['vis']
 		kwargs['hid'] = wld_args['hid']
-		kwargs['ptp'] = wld_args['ptp']
-		kwargs['k'] = wld_args['k']
+		if kwargs['k'] == 1.1111e-5:
+			kwargs['k'] = wld_args['k']
 		kwargs['k'] = wld_args['k']
 		kwargs['p'] = wld_args['p']
 		kwargs['clip'] = wld_args['clip']
-		kwargs['rdlrint'] = wld_args['rdlrint']
-		kwargs['rdlrfac'] = wld_args['rdlrfac']
-		# if lr is reduced load from file don't allow overwriting per param
-		# can be overriden
-		if wld_args['rdlrint'] != 0 and kwargs['overwlr'] == False:
-			kwargs['lr'] = wld_args['rdlr']
-		try:
-			kwargs['trsh'] = wld_args['trsh']
-		except KeyError:
-			kwargs['trsh'] = 1e-04
 		epochs_done = wld_args['epochs_done']
 		if kwargs['lr'] == 0.0555:
 			kwargs['lr'] = wld_args['lr']
+		try:
+			kwargs['ptp'] = wld_args['ptp']
+		except KeyError:
+			kwargs['ptp'] = False
 
 	from ..base import rgc_filename_str
 	map_outstr = rgc_filename_str(**kwargs)
@@ -79,9 +73,7 @@ def train_rgc(
 		'p': kwargs['p'],
 		'ptp': kwargs['ptp'],
 		'leaky': kwargs['leaky'],
-		'trsh': kwargs['trsh'],
-		'rdlrint': kwargs['rdlrint'],
-		'rdlrfac': kwargs['rdlrfac'],
+		'corr': kwargs['corr'],
 	})
 
 	procs = []
@@ -122,7 +114,6 @@ def train_rgc(
 				'map_outstr': map_outstr,
 				'epochs_done': epochs_done,
 				'writer_logfile': kwargs['writer_logfile'],
-				'batch_samples_n': kwargs['batch_samples_n'],
 			}.items() + alg_args.items()),
 		t_proc=trainer_proc,
 		t_args=dict({'trainer_func': 
@@ -135,6 +126,7 @@ def train_rgc(
 				'v1file': kwargs['v1file'],
 
 				'batch_samples_n': kwargs['batch_samples_n'],
+				'ptp': kwargs['ptp'],
 			}.items() + alg_args.items()),
 		clean_f=__clean_func,
 		clean_args=dict({
@@ -164,6 +156,7 @@ def __writeout_func(
 	W = odict['W']
 	expcolor_f (W, vis*vis_ch, vis, tdir+'/obs_W_0_1.pnm', hid, hid)
 	expcolor_f (odict['x'], vis*vis_ch, vis, tdir+'/obs_X_0.pnm')
+	expcolor_f (odict['cx'], vis*vis_ch, vis, tdir+'/obs_X_1.pnm')
 	exp_f (odict['y'], hid, hid, tdir+'/obs_Y_1.pgm')
 	expcolor_f (odict['z'], vis*vis_ch, vis, tdir+'/obs_Z_0.pnm')
 	expcolor_f (odict['err'], vis*vis_ch, vis, tdir+'/obs_E_0.pnm')
@@ -189,16 +182,11 @@ def __writeout_func(
 			'clip': kwargs['clip'],
 			'k': kwargs['k'],
 			'p': kwargs['p'],
-			'trsh' : kwargs['trsh'],
-			'ptp' : kwargs['ptp'],
-			'rdlrint' : kwargs['rdlrint'],
-			'rdlrfac' : kwargs['rdlrfac'],
-			'rdlr' : odict['lr'],
+			'corr': kwargs['corr'],
 			},
 		version=2)
-
 	import os
-	if kwargs['sequence'] != 0 and (odict['epochs']/kwargs['batch_samples_n']) % kwargs['sequence'] == 0: 
+	if kwargs['sequence']: 
 		from ..base import pad_sequence_num
 		seqstr = '_' + \
 			pad_sequence_num(kwargs['epochs_done']+odict['epochs'])
@@ -206,7 +194,7 @@ def __writeout_func(
 	else:        
 		seqstr = ''
 		write_dir = wdir
-	filename = os.path.join(write_dir,'rgc'+seqstr+'.png')
+	filename = os.path.join(write_dir,'drgc'+seqstr+'.png')
 	from ..base.plots import save_w_as_image
 	save_w_as_image(W, vis, vis, hid, hid, 
 		mode=kwargs['mode'], 
@@ -230,34 +218,37 @@ def __train_func(
 	lr = kwargs['lr']
 	k = kwargs['k']
 	p = kwargs['p']
-	t = kwargs['trsh']
-	rdlrint = kwargs['rdlrint']
-	rdlrfac = kwargs['rdlrfac']
+	corr = kwargs['corr']
 
 	for n in xrange(kwargs['max_epochs']):
 		batch = patchq.get()
 		for batch_index in xrange(kwargs['batch_samples_n']):
 			x = batch[batch_index]
-			if clip:	y = N.clip(N.dot(W, x), leaky, N.inf)
-			else:		y = N.dot(W, x)		
+			'''corrupt input'''
+			cx = N.copy(x)
+			cxmax = N.max(cx)
+			for i, ucx in enumerate(cx):
+				if N.random.randint(0, 100) < corr:
+					cx[i] = cxmax*.5
+			'''end corrupt input'''
+
+			if clip:	y = N.clip(N.dot(W, cx), leaky, N.inf)
+			else:		y = N.dot(W, cx)		
 			z = N.dot(W.T, y)
 			err = x - z
 			dW = lr * N.outer(y, err)
 			W += dW
 			for i in range(0, N.shape(W)[0]):
-				if N.max(N.abs(W[i])) > t:
-					W[i] += lr * -k * N.copysign(1, W[i]) * N.abs(W[i])**p
+				W[i] += lr * -k * N.copysign(1, W[i]) * N.abs(W[i])**p
 		if n % kwargs['out_each_n'] == 0:
 			if not outq.full():
-				outq.put({'W':W, 'x':x, 'y':y, 'z':z, 
+				outq.put({'W':W, 'x':x, 'y':y, 'z':z, 'cx':cx, 
 						  'err':err, 
 						  'epochs':n*kwargs['batch_samples_n'], 
-						  'elapsed':time.time() - last_time,
-						  'lr':lr}, 
+						  'elapsed':time.time() - last_time}, 
 						  block=False)
 				last_time = time.time()
-		if n != 0 and rdlrint != 0 and n % rdlrint == 0:
-			lr = lr*rdlrfac
+
 
 
 def __train_func_theano(
@@ -275,22 +266,12 @@ def __train_func_theano(
 	lr = kwargs['lr']
 	k = kwargs['k']
 	p = kwargs['p']
-	tresh = kwargs['trsh']
-	rdlrint = kwargs['rdlrint']
-	rdlrfac = kwargs['rdlrfac']
+	corr = kwargs['corr']
 
 
 	'''theano model'''
 	import theano
 	from theano import tensor as T
-	from theano.ifelse import ifelse
-	# cfn=lambda x: \
-	# 	ifelse(
-	# 		T.gt(T.max(T.abs_(x)), tresh), 		
-	# 		x + T.constant(lr) * \
-	# 		T.constant(-k) * T.sgn(x) * \
-	# 		T.abs_(x)**T.constant(p)
-	# 		, x)
 	cfn=lambda x: \
 		x + T.constant(lr) * \
 		T.constant(-k) * T.sgn(x) * \
@@ -326,21 +307,27 @@ def __train_func_theano(
 		batch = patchq.get()
 		for batch_index in xrange(kwargs['batch_samples_n']):
 			x = batch[batch_index]
-			err, y, z = train_step(x)
-			WW = W.get_value(borrow=True, return_internal_type=True)
-			WW = constr(WW)
-			W.set_value(WW, borrow=True)
+			'''corrupt input'''
+			cx = N.copy(x)
+			cxmax = N.max(cx)
+			for i, ucx in enumerate(cx):
+				if N.random.randint(0, 100) < corr:
+					cx[i] = cxmax*.5
+			'''end corrupt input'''
+
+			err, y, z = train_step(cx)
+			# WW = W.get_value(borrow=True, return_internal_type=True)
+			# WW = constr(WW)
+			# W.set_value(WW, borrow=True)
 		if n % kwargs['out_each_n'] == 0: 
 			if not outq.full():
-				outq.put({'W':WW, 'x':x, 'y':y, 'z':z, 
+				WW = W.get_value(borrow=True, return_internal_type=True)
+				outq.put({'W':WW, 'x':x, 'y':y, 'z':z, 'cx':cx, 
 						  'err':err, 
 						  'epochs':n*kwargs['batch_samples_n'], 
-						  'elapsed':time.time() - last_time,
-						  'lr':lr}, 
+						  'elapsed':time.time() - last_time}, 
 						  block=False)
 				last_time = time.time()
-		if n != 0 and rdlrint != 0 and n % rdlrint == 0:
-			lr = lr*rdlrfac
 
 
 

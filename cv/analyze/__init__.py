@@ -51,7 +51,7 @@ def rec_map(args):
 
 def cluster_fits(args):
 	from cluster import cluster_map
-	cluster_map(args)
+	return cluster_map(args)
 
 
 

@@ -79,7 +79,6 @@ def add_ellipsoid(
 	ax.add_artist(e)
 	if plain:	e.set_clip_on(False)
 	else: 		e.set_clip_box(ax.bbox)
-	if N.array(edge_color).all() == 1.: edge_color = [.5, .5, .5]
 	e.set_edgecolor(edge_color)
 	e.set_facecolor(face_color)
 	e.set_alpha(alpha)
@@ -200,82 +199,145 @@ def write_rf_fit_debug_fig(
 	rf_name = title if title != None else 'RF'
 	rec_name = title + 'rec. ' if title != None else 'rec.'
 
-	if s_scale == None:	s_scale = scale
-
 	cmap = colormap_for_mode(mode)
 	from receptivefield import convert_rfvector_to_rgbmatrix
+	from receptivefield import value_of_rfvector_at
 	from ..analyze.cluster import __transpose_zero_to_one
-	rf_mat = convert_rfvector_to_rgbmatrix(rf, patch_width, patch_width, mode, swap=True, flip=False)
+	rf_mat = convert_rfvector_to_rgbmatrix(rf, patch_width, patch_width, mode, swap=False, flip=False)
 	rf_mat = __transpose_zero_to_one(rf_mat)
 	dic_rf = {'name':'' if no_title else rf_name, 'value':rf_mat, 'maxmin':False, 'cmap':cmap, 'balance':False}
 	mu_x, mu_y = 0, 0
-	theta = 0
+	ctheta = 0
 
+	p_names = []
 	if not p is None:
 		if model=='dog':
 			'''     0     1     2        3       ...
 			params: mu_x  mu_y  r_c  	 r_s     ...'''
-			mu_x, mu_y = p[1], p[0]
-			theta = 0
+			p_names = ['mu_x','mu_y','r_c','r_s',
+				'k_s','cdir_a','dir_b','cdir_c','bias_a','bias_b','bias_c']
+			cmux, cmuy = p[0], p[1]
+			smux, smuy = p[0], p[1]
+			ctheta, stheta = 0, 0
 			rhc, rwc = p[2], p[2]
 			rhs, rws = p[3], p[3]
 		elif model=='edog':
 			'''     0     1     2        3        4             5      ...
-			params: mu_x  mu_y  sigma_x  sigma_y  c_to_s_ratio  theta  ...'''			
-			if p[4] > 1: rwc=p[2]*scale ; 	   rhc=p[3]*scale ; 	 rws=p[2]*p[4]*s_scale ; 	rhs=p[3]*p[4]*s_scale
-			else:		 rwc=p[2]*p[4]*scale ; rhc=p[3]*p[4]*scale ; rws=p[2]*s_scale ; 	   	rhs=p[3]*s_scale
-			mu_x, mu_y = p[1], p[0]
-			theta = p[5]
+			params: mu_x  mu_y  sigma_x  sigma_y  c_to_s_ratio  theta  ...'''
+			p_names = ['mu_x','mu_y','sigma_x','sigma_y','c_to_s_ratio','theta',
+				'k_s','cdir_a','cdir_b','cdir_c','bias_a','bias_b','bias_c']
+			cmux, cmuy = p[0], p[1]
+			smux, smuy = p[0], p[1]
+			ctheta, stheta = p[5], p[5]
+			if p[4] > 1: rwc=p[2]*scale ; 	   rhc=p[3]*scale ; 	 rws=p[2]*p[4]*scale ; 	rhs=p[3]*p[4]*scale
+			else:		 rwc=p[2]*p[4]*scale ; rhc=p[3]*p[4]*scale ; rws=p[2]*scale ; 	   	rhs=p[3]*scale
+		elif model=='edog_ext':
+			'''params: 0: cmu_x  1: cmu_y  
+			   2: csigma_x  3: csigma_y  4: ctheta
+			   5: ccdir_a 	6: ccdir_b   7: ccdir_c
+			   8: ssigma_x  9: ssigma_y 10: stheta
+			  11: scdir_a  12: scdir_b  13: scdir_c
+			  14: bias_a   15: bias_b   16: bias_c
+			  17: k_s (k_c is implicitly fixed as 1)'''			
+			p_names = ['cmu_x','cmu_y',
+				'csigma_x','csigma_y','ctheta',
+				'ccdir_a','ccdir_b','ccdir_c',
+				'ssigma_x','ssigma_y','stheta',
+				'scdir_a','scdir_b','scdir_c',
+				'bias_a','bias_b','bias_c','k_s']		
+			cmux = p[0]; cmuy = p[1]; rwc = p[2]*scale; 	rhc = p[3]*scale; ctheta = p[4]
+			smux = p[0]; smuy = p[1]; rws = p[8]*scale; 	rhs = p[9]*scale; stheta = p[10]
+		elif model=='edog_ext2':
+			'''params: 0: cmu_x  1: cmu_y  
+			   2: csigma_x  3: csigma_y  4: ctheta
+			   5: ccdir_a 	6: ccdir_b   7: ccdir_c
+			   8: smu_x  9: smu_y
+			  10: ssigma_x  11: ssigma_y 12: stheta
+			  13: scdir_a   14: scdir_b  15: scdir_c
+			  16: k_s (k_c is implicitly fixed as 1)'''		
+			p_names = ['cmu_x','cmu_y',
+				'csigma_x','csigma_y','ctheta',
+				'ccdir_a','ccdir_b','ccdir_c',
+				'smu_x','smu_y',
+				'ssigma_x','ssigma_y','stheta',
+				'scdir_a','scdir_b','scdir_c',
+				'k_s']		
+			cmux = p[0]; cmuy = p[1]; rwc = p[2]*scale; 	rhc = p[3]*scale; ctheta = p[4]
+			smux = p[8]; smuy = p[9]; rws = p[10]*scale; 	rhs = p[11]*scale; stheta = p[12]
 
 
-		theta = N.pi-180/N.pi*theta
-		ellip_c = [mu_x, mu_y, rwc, rhc, -theta, ellipsoid_line_width, [.0,.0,.0], 'none']
-		ellip_s = [mu_x, mu_y, rws, rhs, -theta, ellipsoid_line_width, [.0,.0,.0], 'none']
-		dic_rf['theta'] = theta
+
+		ellip_c = [cmux, cmuy, rwc, rhc, -180/N.pi*ctheta+90, ellipsoid_line_width,    [.0,.0,.0], 'none']
+		ellip_s = [smux, smuy, rws, rhs, -180/N.pi*stheta+90, ellipsoid_line_width*2., [.0,.0,.0], 'none']
+		dic_rf['theta'] = ctheta
 		dic_rf['patch_width'] = patch_width
-
+		dic_rf['mu_xy'] = (cmux, cmuy)
 
 	plots = [dic_rf]
 
 
 	if not p is None and draw_ellipsoid:
 		nones = N.ones(rf_mat.shape)
-		dic_ellip = {'name':'' if no_title else 'fit', 'value':nones, 'maxmin':False, 'cmap':'Greys', 'balance':False, 'invertaxis':True, 
-		'theta':theta, 'patch_width':patch_width, 'drawlines':True}
+		annotated_p = ''
+		for i,par in enumerate(p_names):
+			annotated_p += par + ':' + str(N.round(p[i],2)) + ',  '
+			if model=='edog_ext':
+				if par == 'cmu_y' or par == 'ccdir_c' or par == 'scdir_c':
+					annotated_p += '\n'
+			else:
+				if (i+1) % 5 == 0:
+					annotated_p += '\n'
+		
+		# print 'center color'
+		# print N.round(p[0],2), N.round(p[1],2)
+		# print N.round(value_of_rfvector_at(mode, rf, p[0], p[1], patch_width, patch_width**2),2)
+
+		if model=='edog_ext':
+			annotated_p += '\n'
+			cnt =  __transpose_zero_to_one( N.array([p[5], p[6], p[7]]) ) 
+			srn = __transpose_zero_to_one( N.array([p[11], p[12], p[13]]) )
+			color = value_of_rfvector_at(mode, rf, p[0], p[1], patch_width, patch_width**2)
+			annotated_p += 'center color:' + str(N.round(N.abs(__transpose_zero_to_one( N.array([color[0], color[1], color[2]]) )),2)*255 ) + '\n'
+			annotated_p += 'center rgb:' + str(N.round(cnt,2)*255 ) + '\n'
+			annotated_p += 'surr rgb:' + str(N.round(srn,2)*255 ) + '\n'
+
+
+		title = 'params\n' + str(annotated_p) + '\nfit' 
+		dic_ellip = {'name':'' if no_title else title, 'value':nones, 'maxmin':False, 'cmap':'Greys', 'balance':False, 'invertaxis':False, 'theta':ctheta, 'patch_width':patch_width, 'drawlines':True}
 		dic_ellip['ellipsoid_c'] = ellip_c
 		dic_ellip['ellipsoid_s'] = ellip_s	
 		plots = plots + [dic_ellip]
 
-	if True:
-		h_dic_curve = {'name':'' if no_title else 'primary axis', 'value':rf, 'mu_xy':(mu_x,mu_y), 'theta':theta, 'patch_width':patch_width, 'horizontal':False, 'mode':mode, 'drawlines':True}
-		plots = plots + [h_dic_curve]
-		w_dic_curve = {'name':'' if no_title else 'secondary axis', 'value':rf, 'mu_xy':(mu_x,mu_y), 'theta':theta, 'patch_width':patch_width, 'horizontal':True, 'mode':mode, 'drawlines':True}
-		plots = plots + [w_dic_curve]
+	# if True:
+	# 	h_dic_curve = {'name':'' if no_title else 'primary axis', 'value':rf, 'mu_xy':(cmux,cmuy), 'theta':ctheta, 'patch_width':patch_width, 'horizontal':False, 'mode':mode, 'drawlines':True}
+	# 	plots = plots + [h_dic_curve]
+	# 	w_dic_curve = {'name':'' if no_title else 'secondary axis', 'value':rf, 'mu_xy':(cmux,cmuy), 'theta':ctheta, 'patch_width':patch_width, 'horizontal':True, 'mode':mode, 'drawlines':True}
+	# 	plots = plots + [w_dic_curve]
 
 
 	if not rf_reconstr is None:
-		rec_mat = convert_rfvector_to_rgbmatrix(rf_reconstr, patch_width, patch_width, mode, swap=True, flip=False)
+		rec_mat = convert_rfvector_to_rgbmatrix(rf_reconstr, patch_width, patch_width, mode, swap=False, flip=False)
 		rec_mat = __transpose_zero_to_one(rec_mat)
 		dic_rec = {'name':'' if no_title else rec_name, 'value':rec_mat, 'maxmin':False, 'cmap':cmap, 'balance':False}
-		dic_rec['theta'] = theta
+		dic_rec['theta'] = ctheta
 		dic_rec['patch_width'] = patch_width
-
+		dic_rec['mu_xy'] = (cmux, cmuy)
 	
 
 		plots = plots + [dic_rec]
 
 		if not rf_reconstr_err is None:
-			err_mat = convert_rfvector_to_rgbmatrix(rf_reconstr_err, patch_width, patch_width, mode, swap=True, flip=False)
+			err_mat = convert_rfvector_to_rgbmatrix(rf_reconstr_err, patch_width, patch_width, mode, swap=False, flip=False)
 			err_mat = __transpose_zero_to_one(err_mat)
 			str_err = str(N.round(N.max(rf_reconstr_err),6))
 			dic_err = {'name':'' if no_title else 'error '+str_err, 'value':err_mat, 'maxmin':False, 'cmap':cmap, 'balance':True, 'invertaxis':True}
 			plots = plots + [dic_err]
 
-		if True:
-			h_dic_curve = {'name':'' if no_title else 'primary axis', 'value':rf_reconstr, 'mu_xy':(mu_x,mu_y), 'theta':theta, 'patch_width':patch_width, 'horizontal':False, 'mode':mode, 'drawlines':True}
-			plots = plots + [h_dic_curve]
-			w_dic_curve = {'name':'' if no_title else 'secondary axis', 'value':rf_reconstr, 'mu_xy':(mu_x,mu_y), 'theta':theta, 'patch_width':patch_width, 'horizontal':True, 'mode':mode, 'drawlines':True}
-			plots = plots + [w_dic_curve]
+		# if True:
+		# 	h_dic_curve = {'name':'' if no_title else 'primary axis', 'value':rf_reconstr, 'mu_xy':(cmux,cmuy), 'theta':ctheta, 'patch_width':patch_width, 'horizontal':False, 'mode':mode, 'drawlines':True}
+		# 	plots = plots + [h_dic_curve]
+		# 	w_dic_curve = {'name':'' if no_title else 'secondary axis', 'value':rf_reconstr, 'mu_xy':(cmux,cmuy), 'theta':ctheta, 'patch_width':patch_width, 'horizontal':True, 'mode':mode, 'drawlines':True}
+		# 	plots = plots + [w_dic_curve]
 
 
 	write_row_col_fig(plots, 2, 4, outfile, dpi=dpi, alpha=1.0, fontsize=5.5, no_labels=no_title)
@@ -306,7 +368,6 @@ def write_row_col_fig(
 				__plot_rF_curve(rf, patch_width, plot_dic['mode'], plot_dic['mu_xy'], plot_dic['theta'], ax)
 			else:
 				__plot_rF_curve(rf, patch_width, plot_dic['mode'], plot_dic['mu_xy'], plot_dic['theta'], ax, fixed_axis_x=True)
-
 
 			try:
 				if plot_dic['drawlines']:
@@ -440,10 +501,12 @@ def __plot_rF_curve(
 	else:
 		coords = [(mu, i) for i in xrange(0, patch_width)]
 
-	r_coords = [rot(theta, (c[0],c[1]), real_mu) for c in coords]
-	r_coords = [(round(c[0]),round(c[1])) for c in r_coords]
+	# r_coords = [rot(theta, (c[0],c[1]), real_mu) for c in coords]
+	# r_coords = [(round(c[0]),round(c[1])) for c in r_coords]
+	r_coords = coords
 
 	def rot_values(channel, rotated_coords):
+		# import pdb; pdb.set_trace()
 		return N.array([rf_m.T[channel][c[0],c[1]] for c in rotated_coords])
 
 	from scipy.interpolate import interp1d

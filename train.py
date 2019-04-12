@@ -36,7 +36,7 @@ parser.add_argument('-dtype', type=str, help='image type', default='tif')
 
 parser.add_argument('-maxep', type=int, help='max training epochs', default=32000000)
 parser.add_argument('-outn', type=int, help='output for each n steps', default=1000)
-parser.add_argument('-outseq', help='output sequence of images', action='store_true')
+parser.add_argument('-outseq', type=int, default=0, help='output sequence of images interval. 0 = off. interval has to be multiplied with btch to get real epochs.')
 
 parser.add_argument('-ncpu', type=int, help='num of processes', default=1)
 parser.add_argument('-npt', type=int, help='num patches per image', default=3)
@@ -48,6 +48,9 @@ parser.add_argument('-btchn', type=int, help='number of patches in a minibatch',
 
 parser.add_argument('-mode', type=str, choices=['rgb', 'rg', 'rg_vs_b', 'lum'], default='lum')
 
+parser.add_argument('-rdlrint', type=int, default=0, help='lr reduce interval. 0 = off. interval has to be multiplied with btch to get real epochs.')
+parser.add_argument('-rdlrfac', type=float, default=.75, help='lr reduce factor.')
+parser.add_argument('-overwlr', action='store_true', help='if true use lr parameter; not the reduced lr from loaded map.')
 
 subparsers = parser.add_subparsers()
 
@@ -61,6 +64,21 @@ parser_a.add_argument('-clip', help='model parameter: clip hid weights (ReLU)', 
 parser_a.add_argument('-leaky', type=float, help='model parameter: leaky ReLU lower bound.', default=0)
 parser_a.add_argument('-k', type=float, help='model parameter: k', default=1.1111e-5)
 parser_a.add_argument('-p', type=float, help='model parameter: p', default=.5)
+parser_a.add_argument('-trsh', type=float, help='model parameter: trsh', default=1e-04)
+
+
+parser_a = subparsers.add_parser('drgc', help='train rgc layer with denoiser')
+parser_a.set_defaults(which='drgc')
+parser_a.add_argument('-rgcfile', type=str, help='continue from .map file', default=None)
+parser_a.add_argument('-lr', type=float, help='model parameter: lr', default=.0555)
+parser_a.add_argument('-vis', type=int, help='model parameter: sqrt of visible units', default=8)
+parser_a.add_argument('-hid', type=int, help='model parameter: sqrt of hidden units', default=8)
+parser_a.add_argument('-clip', help='model parameter: clip hid weights (ReLU)', action='store_true')
+parser_a.add_argument('-leaky', type=float, help='model parameter: leaky ReLU lower bound.', default=0)
+parser_a.add_argument('-k', type=float, help='model parameter: k', default=1.1111e-5)
+parser_a.add_argument('-p', type=float, help='model parameter: p', default=.5)
+parser_a.add_argument('-corr', type=float, help='chance of input unit to be corrupted', default=0)
+
 
 
 parser_b = subparsers.add_parser('v1', help='train v1 only with fixed rgc layer')

@@ -94,18 +94,19 @@ def value_of_rfvector_at(
 def color_direction_bias(
 	mode, 
 	rf, 
-	channel_w
+	channel_w,
+	amplify=1.0
 	):
 	'''mean of each rf vector component'''
 	if mode=='rgb':
-		return [N.mean(rf[0:channel_w]), 
-				N.mean(rf[channel_w:2*channel_w]), 
-				N.mean(rf[2*channel_w:3*channel_w])]
+		return [N.mean(rf[0:channel_w])*amplify, 
+				N.mean(rf[channel_w:2*channel_w])*amplify, 
+				N.mean(rf[2*channel_w:3*channel_w])*amplify]
 	elif mode=='rg' or mode=='rg_vs_b':
-		return [N.mean(rf[0:channel_w]),
-				N.mean(rf[channel_w:2*channel_w])]
+		return [N.mean(rf[0:channel_w])*amplify,
+				N.mean(rf[channel_w:2*channel_w])*amplify]
 	else:
-		return [N.mean(rf[0:channel_w])]
+		return [N.mean(rf[0:channel_w])*amplify]
 
 
 def arg_absmax_rfvector(

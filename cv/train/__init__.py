@@ -84,6 +84,46 @@ def start_training_from_args(
 				leaky=args.leaky,
 				k=args.k,
 				p=args.p,
+				trsh=args.trsh,
+
+				rdlrint=args.rdlrint,
+				rdlrfac=args.rdlrfac,
+				overwlr=args.overwlr,
+			)
+	elif args.which=='drgc':
+		from cv.train.drgc import train_drgc
+		return train_drgc(
+				which=args.which,
+				spawn_writer=spawn_writer_process,
+				writer_logfile=writer_logfile,
+				odir=args.odir, 
+				tdir=args.tdir, 
+				datadir=args.datadir,
+				dtype=args.dtype,
+				maxep=args.maxep,
+				outn=args.outn,
+				outseq=args.outseq,
+				ncpu=args.ncpu, 
+				npt=args.npt,
+				ptp=args.ptp,
+				th=args.th,
+				mode=args.mode,
+				patcher_filepool_n_open=patcher_filepool_n_open,
+				patcher_filepool_update_s=patcher_filepool_update_s,
+				patcher_filepool_update_nfiles=patcher_filepool_update_nfiles,
+				batch_samples_n=args.btchn,
+				patch_chance_to_sawp_axes=args.swp, 
+
+				v1file=None,
+				rgcfile=args.rgcfile,
+				lr=args.lr,
+				vis=args.vis,
+				hid=args.hid,
+				clip=args.clip,
+				leaky=args.leaky,
+				k=args.k,
+				p=args.p,
+				corr=args.corr,
 			)
 	elif args.which=='v1':
 		from cv.train.v1 import train_v1
@@ -187,6 +227,8 @@ def writer_proc(
 	from ..base import write_param_info_file
 	write_param_info_file(writer_dir, **kwargs)
 
+	epochs_done = kwargs['epochs_done']
+
 	outdict = None
 	from ..base import print_elapsed	
 	total_elapsed = 0
@@ -203,11 +245,16 @@ def writer_proc(
 			err_str = '(rgc) ' + str(N.round(err_mn,6)) + ' (v1) ' + str(N.round(err1_mn,6))
 		except KeyError:
 			pass
+		try:
+			lrstr = outdict['lr']
+		except KeyError:
+			lrstr = ''
 		total_elapsed += outdict['elapsed']
-		out_str = 'n: ' + str(outdict['epochs']) + \
+		out_str = 'n: ' + str(epochs_done+outdict['epochs']) + \
 			  	  '    \terr: '+ err_str + \
 				  '    \telapsed ' + str(outdict['elapsed']) + \
-				  '	   \ttotal ' + str(print_elapsed(total_elapsed))
+				  '	   \ttotal ' + str(print_elapsed(total_elapsed)) + \
+				  '    \tlr ' + str(lrstr)
 		if kwargs['writer_logfile']:
 			f = open(kwargs['writer_logfile'], 'a')
 			f.write(out_str+'\n')

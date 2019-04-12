@@ -102,7 +102,7 @@ def prune_map(
 	elif dic_W['mode'] == 'rg_vs_b': n_ch = 2
 	elif dic_W['mode'] == 'rg': n_ch = 2
 	else: n_ch = 1
-	pruned_patch_h = int(N.ceil(not_zero**.5))+1#2
+	pruned_patch_h = int(N.ceil(not_zero**.5))+3#1
 	pruned_W_shape = (pruned_patch_h**2, patch_w**2*n_ch)
 	rec_W = N.zeros(pruned_W_shape)
 	rec_W_channel_dim = [(0,0) for dim in [None]*num_channel]
@@ -116,7 +116,7 @@ def prune_map(
 			rec_W_index += pruned_patch_h - to_nextrow
 		'''coords: store fitted center coords for each id'''
 		# rec_W_channel_coords.append([])
-		for i in xrange(0, len(cl_ids)):
+		for i in xrange(0, len(cl_ids)-1):
 			p = fits[cl_ids[i]]['p']
 			rec_W[rec_W_index] = W[cl_ids[i]]
 			rec_W_index += 1

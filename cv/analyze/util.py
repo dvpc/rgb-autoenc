@@ -211,7 +211,8 @@ def debug_write_fit(
 	mode, 
 	msg='foo',
 	model='dog',
-	path='.'):
+	path='.',
+	scale=2.):
 	rec = f(p, channel_w, patch_w, *N.indices(rf.shape))
 	rec_err = (rf - rec)**2
 	write_rf_fit_debug_fig(
@@ -220,10 +221,10 @@ def debug_write_fit(
 		patch_w, 
 		mode, 
 		p, 
-		rec, 
+		rec,
 		rec_err, 
 		model, 
-		scale=2.5)	
+		scale=scale)	
 
 
 
@@ -234,7 +235,8 @@ def permutate_mu(
 	patch_w,
 	channel_w,
 	mode,
-	rf
+	rf,
+	ext_model=False
 	):
 	if n==0:
 		center_point = N.array([patch_w/2., patch_w/2.])

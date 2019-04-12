@@ -18,6 +18,18 @@ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+
+
+
+
+
+
+
+
+
+
+
+
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
@@ -55,15 +67,13 @@ def cluster_map(
 
 	'''generate cluster data'''
 	cluster_data = __collect_cluster_data(W_mode, patch_w, channel_w, W, W_clip, 
-		depickled_fits=res, reconstr=args.rec, csp=args.csp, chrm=args.chr, 
-		err=args.err, nz=args.nz, surround=args.surr)
-
-
+		depickled_fits=res, maxcolors=args.maxc, 
+		cntrpar=args.cpar, srndpar=args.spar, 
+		rfspread=args.sprd, nopix=args.nopix)
 
 	'''cluster obs'''
-	idx, args.n = __apply_cluster_alg(cluster_data=cluster_data, alg=args.alg,
-		prior_cluster_num=args.n, t=args.t)
-
+	idx = __apply_cluster_alg(cluster_data=cluster_data, alg=args.alg,
+		prior_cluster_num=args.n, whiten=args.white)
 
 	'''assign cluster id to fits'''
 	num_types = N.zeros(args.n)
@@ -76,39 +86,26 @@ def cluster_map(
 	prototype_color = [N.mean(prot, axis=0) for prot in proto_color_arr]
 
 
-
 	from pprint import pprint as pp
 	# print 'proto colors'
 	# print pp(N.round(prototype_color,1))
 
-	'''sort prototype colors ON / OFF super ugly'''
-	val_proto_on, val_proto_off = [], []
-	for pr in prototype_color:
-		fmax = N.max(pr)
-		on = fmax > .7 # can fail on not enough converged maps
-		if on:	val_proto_on.append( (pr[0], pr[1], pr[2], N.argmax(pr)) )
-		else:	val_proto_off.append( (pr[0], pr[1], pr[2], N.argmin(pr)) )
+	import colorsys, copy
+	s_prototype_color = copy.copy(prototype_color)
+	s_prototype_color.sort(key=lambda rgb: colorsys.rgb_to_hsv(*rgb))
+	print pp(N.round(s_prototype_color,1))
 
-	p_dtype = [('r', float), ('g', float), ('b', float), ('id', int)]
-	proto_on = N.sort(N.array(val_proto_on, dtype=p_dtype), order=['id'])
-	proto_on_flat = [[pr[0],pr[1],pr[2]] for pr in proto_on]
-	proto_off = N.sort(N.array(val_proto_off, dtype=p_dtype), order=['id'])
-	proto_off_flat = [[pr[0],pr[1],pr[2]] for pr in proto_off]
 
-	if proto_on_flat == []:
-		s_prototype_color = proto_off_flat
-	elif proto_off_flat == []:
-		s_prototype_color = proto_on_flat
-	else:
-		s_prototype_color = N.concatenate([
-			[[pr[0],pr[1],pr[2]] for pr in proto_on],
-			[[pr[0],pr[1],pr[2]] for pr in proto_off]
-		])
 
 	sorted_ids = []
 	sort_ch = [None]*args.n
 	for i, pr in enumerate(prototype_color):
-		sorted_ids.append( N.where(s_prototype_color==pr)[0][0] )
+		sid = -1
+		for j, spr in enumerate(s_prototype_color):
+			if pr[0] == spr[0] and pr[1] == spr[1] and pr[2] == spr[2]:
+				sid = j
+				break
+		sorted_ids.append( sid )
 	for i, sid in enumerate(sorted_ids):
 		sort_ch[sid] = i
 
@@ -117,7 +114,6 @@ def cluster_map(
 	for i in xrange(0,len(sort_ch)):
 		s_idx[idx==sort_ch[i]] = i
 		s_num_types[i] = num_types[sort_ch[i]]
-
 
 	'''fold opposing channels'''
 	if args.fold:
@@ -140,6 +136,7 @@ def cluster_map(
 		s_idx = N.copy(fold_idx)
 		s_num_types = N.copy(fold_num_types)
 		args.n = fold_n
+
 
 	print 'sorted proto colors'
 	print pp(N.round(s_prototype_color,1))
@@ -166,26 +163,7 @@ def cluster_map(
 		num_dead_rf=rf_zeros,
 		per_dead_rf=rf_dead_perc)
 
-	if args.plot:
-		from ..base import make_filename
-		filepath = make_filename(args.file,'image__' + fname, '.png', odir=cluster_dir)
-
-		__plot_clusters_coverage(
-			filepath=filepath,
-			res=res,
-			args_plain=False,
-			args_scale=1.2,
-			args_a=1,
-			args_pad=.01,
-			args_dpi=288
-		)		
-
-	if args.pr:
-		import os
-		from prune import prune_map
-		prune_map(args_file=os.path.join(cluster_dir,fname+'.cfits'),args_odir=cluster_dir)
-
-
+	return fname+'.cfits'
 
 
 def plot_clusters_colorspace(
@@ -341,13 +319,7 @@ def plot_clusters_colorspace(
 		make_2d_plot(fig, gs[2,0], (1,2), ('green', 'blue'), fontsize=12)
 
 
-	if not args.odirnosub:
-		import os
-		mod_odir = os.path.join(args.odir, '../')		
-		from ..base import make_working_dir_sub		
-		cluster_dir = make_working_dir_sub(mod_odir, 'cl')
-	else:
-		cluster_dir = args.odir
+	cluster_dir = __handle_outputdir(args.odir, args.odirnosub)
 
 	if args.plain: plain_str = 'plain_'
 	else: 		   plain_str = ''
@@ -374,16 +346,16 @@ def plot_cluster_cov(
 	from util import depickle_fits
 	res = depickle_fits(args.file, suffix='cfits')
 
-	import os
-	mod_odir = os.path.join(args.odir, '../')		
-	from ..base import make_working_dir_sub
-	cluster_dir = make_working_dir_sub(mod_odir, 'cl')
-	if args.plain: plain_str = 'plain_'
+
+	cluster_dir = __handle_outputdir(args.odir, args.odirnosub)
+
+
+	if args.plain: plain_str = 'plain'
 	else: 		   plain_str = ''
+
+	fname = __extract_name_of_filepath(args.file) + '__' + plain_str
 	from ..base import make_filename
-	filepath = make_filename(
-		args.file,'image_clustered_rgc_'+plain_str,
-		'.png', odir=cluster_dir)
+	filepath = make_filename(args.file, fname, '.png', odir=cluster_dir)
 
 	__plot_clusters_coverage(
 		filepath=filepath,
@@ -392,8 +364,80 @@ def plot_cluster_cov(
 		args_scale=args.scale,
 		args_a=args.a,
 		args_pad=args.pad,
-		args_dpi=args.dpi
+		args_dpi=args.dpi,
+		args_nosd=args.nosd
 	)
+
+
+def plot_ellipsoid_areas(
+	args
+	):
+	'''loading precomputed fits'''
+	from util import depickle_fits
+	res = depickle_fits(args.file, suffix='cfits')
+
+	plot_data = []
+	for key in res['fits'].keys():
+		fit = res['fits'][key]
+		p = fit['p']
+
+		if res['model']=='dog':
+			c_area = N.pi * p[2] * p[3]
+			s_area = c_area * p[4] # c_to_s_ratio
+		elif res['model']=='edog':
+			c_area = N.pi * p[2] * p[3]
+			s_area = c_area * p[4] # c_to_s_ratio
+		elif res['model']=='edog_ext':	
+			c_area = N.pi * p[2] * p[3] 
+			s_area = N.pi * p[8] * p[9] 
+		'''center, surround area and cluster index'''
+		plot_data.append([c_area, s_area, fit['cl']])
+
+	
+	data_arr = N.array(plot_data)
+	max_cntr, max_srrd = N.max(data_arr.T[0]), N.max(data_arr.T[1])
+
+
+
+	markers = res['dic_cluster']['num_clusters']*['.']*3
+	markers[0] = '3'
+	markers[1] = '8'
+	markers[2] = '4'
+	markers[3] = 'o'
+	markers[4] = '^'
+	markers[5] = '>'
+	markers[6] = 'd'
+	markers[7] = 'x'
+	markers[8] = 'h'
+	markers[9] = 'H'
+
+	import matplotlib.pyplot as plt	
+	fig = plt.figure()
+	import matplotlib.gridspec as gridspec
+	gs = gridspec.GridSpec(1, 1)
+	ax = fig.add_subplot(gs[0,0], projection=None)
+	ax.grid = True	
+	for k in xrange(0, len(plot_data)):
+		cluster_index = plot_data[k][2]
+		ax.scatter(plot_data[k][0], plot_data[k][1], 
+			c='k', marker=markers[cluster_index], linewidth=.01, s=24., alpha=args.a)
+
+
+	ax.set_xlabel('center area')
+	ax.set_ylabel('surround area')
+	ax.set_aspect(float(max_cntr/max_srrd))
+	ax.set_xlim([.7,max_cntr])
+	ax.set_ylim([.7,max_srrd])
+	ax.set_xscale('log')
+	ax.set_yscale('log')
+
+	fname = __extract_name_of_filepath(args.file) + '__scatterplot'
+	cluster_dir = __handle_outputdir(args.odir, args.odirnosub)
+	from ..base import make_filename
+	filepath = make_filename(args.file, fname,'.png', odir=cluster_dir)
+	plt.savefig(filepath, dpi=args.dpi, pad_inches=args.pad)
+	plt.close(fig)
+	print 'plotted scatter, file', filepath, 'written.'	
 
 
 
@@ -415,20 +459,24 @@ def print_cluster_data(
 	num_dead = cl['num_dead_rf']
 	alive = W.shape[0] - num_dead
 
+
+
+
+
 	import pprint as pp
 
 	print 
 
-	
-
-
 	print '*****+ Trained map data'
 	print 'visible units', W.shape[1]
 	print 'hidden units', W.shape[0]
-	print 'alive hidden units', alive, '(', N.round(alive/float(W.shape[0]),2) ,'% )'
+	print 'alive hidden units', alive, '(', N.round(float(alive)/float(W.shape[0]),2) ,'% )'
 	print '*****+ Map Parameter'
 	print pp.pprint([(key, dic_W[key]) if key!='W' else () for key in dic_W.keys()])
 	
+	print 
+
+
 	print '*****+ Cluster data'
 	print 'num cluster', cl['num_clusters']
 	print 'num rf in each cluster', cl['num_each_cluster']
@@ -437,6 +485,187 @@ def print_cluster_data(
 	print pp.pprint(cl['args'])
 
 
+
+	# TODO cleanup!
+	if res['model']=='dog':
+		p_names = ['mu_x','mu_y','r_c','r_s',
+				'k_s','cdir_a','dir_b','cdir_c','bias_a','bias_b','bias_c']
+	elif res['model']=='edog':
+		p_names = ['mu_x','mu_y','sigma_x','sigma_y','c_to_s_ratio','theta',
+				'k_s','cdir_a','cdir_b','cdir_c','bias_a','bias_b','bias_c']
+	elif res['model']=='edog_ext':
+		p_names = ['cmu_x','cmu_y',
+				'csigma_x','csigma_y','ctheta',
+				'ccdir_a','ccdir_b','ccdir_c',
+				'ssigma_x','ssigma_y','stheta',
+				'scdir_a','scdir_b','scdir_c',
+				'bias_a','bias_b','bias_c','k_s']
+	elif res['model']=='edog_ext2':
+			p_names = ['cmu_x','cmu_y',
+				'csigma_x','csigma_y','ctheta',
+				'ccdir_a','ccdir_b','ccdir_c',
+				'smu_x','smu_y',
+				'ssigma_x','ssigma_y','stheta',
+				'scdir_a','scdir_b','scdir_c',
+				'k_s']
+	else:
+		p_names = []
+
+
+
+	print 
+	print '*****+ Fit Parameters'
+	for key in res['fits'].keys():
+		print '__rf:', key, ':'
+		for fitkey in res['fits'][key].keys():
+			if fitkey == 'p':
+				for idx, par in enumerate(res['fits'][key][fitkey]):
+					print '\t', p_names[idx], '  \t', N.round(par,2)
+				
+			else:
+				print fitkey, ':', res['fits'][key][fitkey]
+	
+		print
+	print 
+
+
+
+def evaluate_cluster_validity(
+	args
+	):
+	print
+	assert args.alg == 'kmean', 'not implemented'
+
+	'''load precomputed fits'''
+	from util import depickle_fits
+	res = depickle_fits(args.file, suffix='fits')
+
+	'''retrieving weightmatrix from fits dic'''
+	W = res['map']['W']
+	patch_w = res['map']['vis']
+	channel_w = res['map']['vis']**2
+	W_mode = res['map']['mode']
+	W_clip = res['map']['clip']
+
+	'''generate cluster data'''	
+	cluster_data = __collect_cluster_data(W_mode, patch_w, channel_w, W, W_clip, 
+		depickled_fits=res, maxcolors=args.maxc, 
+		cntrpar=args.cpar, srndpar=args.spar, 
+		rfspread=args.sprd, nopix=args.nopix)
+
+
+	'''prepare result data struc'''
+	import sys
+	results_num = len(xrange(args.mincl, args.maxcl))
+	results = [None]*results_num
+	results_davis = [None]*results_num
+	for i, c in enumerate(xrange(0,results_num)):
+		results[i] = sys.float_info.max
+		results_davis[i] = sys.float_info.max
+
+
+
+	def __apply_kmean(obs, prior_cl_num):
+		if args.white:
+			from scipy.cluster.vq import whiten
+			obs = whiten(obs)
+		from scipy.cluster.vq import kmeans, vq
+		centroids,_ = kmeans(obs, prior_cl_num, iter=1250)
+		idx, dist = vq(obs,centroids)
+		return obs, centroids, idx, dist
+
+	def __compact_data(obs, prior_cl_num, centroids, idx, dist):
+		'''put result into explicit data structure'''
+		compact = [None]*prior_cl_num
+		for i, c in enumerate(centroids):
+			compact[i] = []	
+		for i, observation in enumerate(obs):
+			compact[idx[i]].append([observation, dist[i]])
+		return compact
+
+
+
+	def __davies_bouldin(prior_cl_num, centroids, dist_by_cluster):
+		'''scatter inside a cluster c_i'''
+		scatter_arr = [None]*prior_cl_num
+		for i, c in enumerate(centroids):
+			cluster_len = len(dist_by_cluster[i])
+			scatter_inside_cl = 0.0
+			for cluster in dist_by_cluster[i]:
+				scatter_inside_cl += cluster[-1]
+			scatter_arr[i] = scatter_inside_cl/cluster_len		
+
+		'''separation between clusters i and j'''
+		separation_max_arr = [None]*prior_cl_num
+		for i, c in enumerate(centroids):
+			separation_of_cl = []
+			for j, c_other in enumerate(centroids):
+				if i != j:
+					separation_of_cl.append( (scatter_arr[i]+scatter_arr[j])/euclidean(c, c_other) )
+			separation_max_arr[i] = N.max(separation_of_cl)
+
+		dbidx = 0
+		for i, c in enumerate(centroids):
+			dbidx += separation_max_arr[i]
+		return dbidx/prior_cl_num
+
+
+	from scipy.spatial.distance import euclidean
+	def __ray_turi(obs, centroids, dist_by_cluster):
+		'''intra measure / compactness of clusters -> want MIN'''
+		intra = 0
+		for i, z in enumerate(centroids):
+			for x in dist_by_cluster[i]:
+				intra += euclidean(x[0], z)
+		intra = intra/len(obs)		
+
+		'''inter cluster measure; dist between cluster centres -> want MAX'''
+		inter = sys.float_info.max
+		for i, z in enumerate(centroids):
+			for j, z_other in enumerate(centroids):
+				if i != j and j >= i+1:
+					eucl = euclidean(z, z_other)
+					if inter > eucl:
+						inter = eucl
+
+		validity = intra / inter
+		return validity		
+
+
+
+	'''iterate through tests'''
+	for x in xrange(1,args.ntest):
+		sys.stdout.write(str(x))
+		sys.stdout.flush()
+
+		'''for each num in range apply clsuter algo and test results'''
+		for i, clnum in enumerate(xrange(args.mincl, args.maxcl)):
+
+			'''cluster obs'''
+			obs, centroids, idx, dist = __apply_kmean(cluster_data, clnum)
+			distances_by_cluster = __compact_data(obs, clnum, centroids, idx, dist)
+
+			sys.stdout.write('.')
+			sys.stdout.flush()
+
+			rayturi = __ray_turi(obs, centroids, distances_by_cluster)
+			davis = __davies_bouldin(clnum, centroids, distances_by_cluster)
+
+			if results[i] > rayturi:
+				results[i] = rayturi
+			if results_davis[i] > davis:
+				results_davis[i] = davis
+			# results[i] += rayturi
+			# results_davis[i] += davis
+
+
+	print 
+	print 'map', args.file.split('/')[-1], ',', 
+	# print 'map', args_file.split('/')[2], ',', 
+	print args.ntest, '''iterations'''
+	print '''clusters  \tray turi \tdavies bouldin'''
+	for i, c in enumerate(xrange(args.mincl,args.maxcl)):
+		print i+3, '\t\t', N.round(results[i],4), '\t\t', N.round(results_davis[i],4)
 
 
 
@@ -448,13 +677,11 @@ def __plot_clusters_coverage(
 	args_a,
 	args_pad,
 	args_dpi,
+	args_nosd
 	):
 	args_n = res['dic_cluster']['num_clusters']
 	patch_w = res['map']['vis']
 	from ..base.plots import numplots_to_rowscols
-	# def numplots_to_rowscols(num):
-	# 	sq = int(num**.5)+1
-	# 	return sq, sq
 	rows, cols = numplots_to_rowscols(args_n)
 	import matplotlib.pyplot as plt	
 	zeros = N.ones(patch_w**2).reshape(patch_w, patch_w)*.5
@@ -476,7 +703,7 @@ def __plot_clusters_coverage(
 		cl_id = fit['cl']
 		subplot = subplots[cl_id/cols, cl_id%rows]
 		if not args_plain:
-			subplot.annotate(str(fit['n']), fontsize=4, xy=(p[0], patch_w-p[1]))
+			subplot.annotate(str(fit['n']), fontsize=4, xy=(p[0], p[1]))
 		r_scale = args_scale
 		if res['model']=='dog':
 			if p[2] > p[3]: rc = p[2]*r_scale ; rs = p[3]*r_scale
@@ -488,95 +715,124 @@ def __plot_clusters_coverage(
 			else:		 rwc=p[3]*p[4]*r_scale ; rhc=p[2]*p[4]*r_scale ; rws=p[3]*r_scale ; 	 rhs=p[2]*r_scale
 			ellip_c = [p[0], patch_w-p[1], rwc, rhc, 180/N.pi*p[5]]
 			ellip_s = [p[0], patch_w-p[1], rws, rhs, 180/N.pi*p[5]]
+		elif res['model']=='edog_ext':
+			'''params: 0: cmu_x  1: cmu_y  
+			   2: csigma_x  3: csigma_y  4: ctheta
+			   5: ccdir_a 	6: ccdir_b   7: ccdir_c
+			   8: ssigma_x  9: ssigma_y 10: stheta
+			  11: scdir_a  12: scdir_b  13: scdir_c
+			  14: bias_a   15: bias_b   16: bias_c
+			  17: k_s (k_c is implicitly fixed as 1)'''				
+			cmux = p[0]; cmuy = p[1]; rwc = p[2]*r_scale; 		rhc = p[3]*r_scale; 	  ctheta = p[4]
+			smux = p[0]; smuy = p[1]; rws = p[17]*p[8]*r_scale; rhs = p[17]*p[9]*r_scale; stheta = p[10]
+			ellip_c = [cmux, cmuy, rwc, rhc, -180/N.pi*ctheta]
+			ellip_s = [smux, smuy, rws, rhs, -180/N.pi*stheta]
+		elif res['model']=='edog_ext2':
+			'''params: 0: cmu_x  1: cmu_y  
+			   2: csigma_x  3: csigma_y  4: ctheta
+			   5: ccdir_a 	6: ccdir_b   7: ccdir_c
+			   8: smu_x  9: smu_y
+			  10: ssigma_x  11: ssigma_y 12: stheta
+			  13: scdir_a   14: scdir_b  15: scdir_c
+			  16: k_s (k_c is implicitly fixed as 1)
+			   '''		
+			cmux = p[0]; cmuy = p[1]; rwc = p[2]*r_scale; 	rhc = p[3]*r_scale; ctheta = p[4]
+			smux = p[8]; smuy = p[9]; rws = p[10]*r_scale; 	rhs = p[11]*r_scale; stheta = p[12]
+			ellip_c = [cmux, cmuy, rwc, rhc, -180/N.pi*ctheta]
+			ellip_s = [smux, smuy, rws, rhs, -180/N.pi*stheta]
+
+		c_face_color = fit['color_rgb']
+		c_edge_color = 'none'#fit['c_color_rgb']
+		s_face_color = fit['s_color_rgb']
+
+		if not args_nosd:
+			add_ellipsoid(subplot, par=ellip_s, alpha=args_a*.75, edge_color=s_face_color, face_color='none', linewidth=1., plain=args_plain)
+		add_ellipsoid(subplot, par=ellip_c, alpha=args_a, edge_color=c_edge_color, face_color=c_face_color, linewidth=.5, plain=args_plain)
 
 
-
-		color = fit['color_rgb']
-		try:
-			s_color = fit['s_color_rgb']
-		except KeyError:
-			s_color = [.1,.1,.1]
-
-		if not args_plain:
-			c_face_color = color
-			s_face_color = 'none'
-		else:
-			c_face_color = color
-			s_face_color = s_color
-
-		if not args_plain:
-			add_ellipsoid(subplot, par=ellip_s, alpha=0.75, edge_color=[.1,.1,.1], face_color=s_face_color, linewidth=.5, plain=args_plain)
-		add_ellipsoid(subplot, par=ellip_c, alpha=args_a, edge_color=[.1,.1,.1], face_color=c_face_color, linewidth=.5, plain=args_plain)
-
-
-	plt.savefig(filepath+'.png', dpi=args_dpi, bbox_inches='tight', pad_inches=args_pad) #
+	plt.tight_layout(pad=0, w_pad=args_pad, h_pad=args_pad)
+	plt.savefig(filepath+'.png', dpi=args_dpi, bbox_inches='tight', pad_inches=.1)
 	plt.close(fig)
 	print 'plotted coverage', filepath+'.png', 'written.'
 
 
-def __shape_weight_value(
-	mode,
-	a,
+
+
+ 
+def __collect_cluster_data(
+	W_mode,
+	patch_w,
+	channel_w,
+	W,
+	W_clip,
+	depickled_fits={},
+	maxcolors=False,
+	cntrpar=False, 
+	srndpar=False,
+	rfspread=.0,
+	nopix=False
 	):
-	import numpy as N	
-	if mode=='rgb':
-		return N.array(a)
-	elif mode=='rg':
-		return N.array([a[0], a[1], N.zeros(1)])
-	elif mode=='rg_vs_b':
-		return N.array([a[0], a[0], a[1]])
-	elif mode=='lum':
-		return N.array([a[0], a[0], a[0]])
+	from parametric_fit import __rec_map
+	W_rec = __rec_map(depickled_fits['map'], depickled_fits['fits'], depickled_fits['model'])
 
-import numpy as N
-def __transpose_zero_to_one(
-	a
-	):
-	'''transpose color from [-1, 1] to [0, 1]'''
-	# return (a + 1.)/2.
-	return N.clip((a + 1.)/2., 0, 1)
+	'''generate cluster data'''
+	import numpy as N
+
+	cluster_data = []
+
+	from ..base.plots import normalize_color
+	from ..base.receptivefield import value_of_rfvector_at
+
+	keys = sorted(depickled_fits['fits'].keys())
+	for key in keys:
+		fit = depickled_fits['fits'][key]
+		p, n = fit['p'], fit['n']
 
 
-def __build_filename_from_args(
-	args
-	):
-	'''compute filename'''
-	import argparse
-	str_surr = ''
-	str_nz = ''
-	str_chr = ''
-	str_err = ''
-	str_fold = ''
-	if type(args) == argparse.Namespace:
-		if args.surr: str_surr = 'surround_'
-		if args.nz:  str_nz = 'nz_'
-		if args.chr: str_chr = 'chr_'
-		if args.err: str_err = 'err_'
-		if args.fold: str_fold = 'fold_'
-		str_n = str(args.n)
-		str_alg = str(args.alg)
-		str_csp = str(args.csp)
-		str_t = str(args.t)
-	else:
-		# if args['surr']: str_surr = 'surround_'
-		if args['nz'] != 0: str_nz = 'nz_'
-		if args['chr'] != 0: str_chr = 'chr_'
-		if args['err'] != 0: str_err = 'err_'
-		if args['fold']: str_fold = 'fold_'
-		str_n = str(args['n'])
-		str_alg = str(args['alg'])
-		str_csp = str(args['csp'])
-		str_t = str(args['t'])
-
-	if str_alg != 'kmean' and str_alg != 'spec': 	
-		str_thr = 't' + str_t + '_' 
-	else:											
-		str_thr = ''
-	misc = str_alg + '_' + str_fold + str_n + 'ch_' + \
-		str_thr + str_err + str_nz + str_chr + str_surr + str_csp
-	return misc
+		'''store coords of position with maximal variance
+		for later usage of chosing prototypical filters'''
+		real_pix_center_coords = ( N.round(p[0]) , N.round(p[1]) )
+		fit['real_pix_center_coords'] = real_pix_center_coords
 
 
+		'''center color the traditional way'''
+		color = value_of_rfvector_at(W_mode, W[n], real_pix_center_coords[0], real_pix_center_coords[1], patch_w, channel_w)
+		color = N.array([color[0], color[1], color[2]])
+		cntr_color_dir = N.array([p[5], p[6], p[7]])
+		srnd_color_dir = N.array([p[11], p[12], p[13]])
+
+		if maxcolors:			
+			cntr = __transpose_zero_to_one( normalize_color(cntr_color_dir) )
+			srrnd = __transpose_zero_to_one( normalize_color(srnd_color_dir) )
+			color = __transpose_zero_to_one( normalize_color(color) )
+
+		else:
+			cntr = __transpose_zero_to_one( cntr_color_dir )
+			srrnd = __transpose_zero_to_one( srnd_color_dir )
+			color = __transpose_zero_to_one( color )
+
+
+		fit['color_rgb'] = color
+		if not nopix:
+			arr = N.copy(color)
+		else:
+			arr = []
+
+		fit['c_color_rgb'] = cntr
+		fit['s_color_rgb'] = srrnd
+
+		if cntrpar:
+			arr = N.append(arr, cntr_color_dir)
+		if srndpar:
+			arr = N.append(arr, srnd_color_dir)
+		if rfspread > 0:
+			'''mean of spread'''
+			spm = (p[2] + p[3])/rfspread
+			arr = N.append(arr, spm)
+
+		cluster_data.append(arr)
+
+	return cluster_data
 
 
 def __est_real_pix_coords(
@@ -616,186 +872,37 @@ def __est_real_pix_coords(
 
 
 
-def __est_surround_color(
-	p,
-	rf,
-	W_mode,
-	patch_w,
-	channel_w
-	):
-	'''approx. considers only 4 points:
-		A: mu + sigma_x,
-		B: mu - sigma_x,
-		C: mu + sigma_y,
-		D: mu - sigma_y'''
-	from ..base.plots import rot
-	# def rot(angle, xy, p_rot_over):
-	# 	s = N.sin(angle)
-	# 	c = N.cos(angle)
-	# 	xy = (xy[0] - p_rot_over[0], xy[1] - p_rot_over[1])
-	# 	rx = xy[0]*c - xy[1]*s
-	# 	ry = xy[0]*s + xy[1]*c	
-	# 	return (rx+p_rot_over[0], ry+p_rot_over[1])
-	mu = (p[0], p[1])
-	sigma = (p[2], p[3])
-	c_to_s_ratio = p[4]
-	theta = p[5]
-	sig_x = sigma[0]*c_to_s_ratio
-	sig_y = sigma[1]*c_to_s_ratio
-	A = rot(-theta, (mu[0]+sig_x, mu[1]), mu)
-	B = rot(-theta, (mu[0]-sig_x, mu[1]), mu)
-	C = rot(-theta, (mu[0], mu[1]+sig_y), mu)
-	D = rot(-theta, (mu[0], mu[1]-sig_y), mu)
-
-	from ..base.receptivefield import value_of_rfvector_at
-	# cA = N.array(value_of_rfvector_at(W_mode, rf, N.ceil(A[0]), A[1], patch_w, channel_w))
-	# cB = N.array(value_of_rfvector_at(W_mode, rf, N.floor(B[0]), B[1], patch_w, channel_w))
-	# cC = N.array(value_of_rfvector_at(W_mode, rf, C[0], N.ceil(C[1]), patch_w, channel_w))
-	# cD = N.array(value_of_rfvector_at(W_mode, rf, D[0], N.floor(D[1]), patch_w, channel_w))
-	cA = N.array(value_of_rfvector_at(W_mode, rf, A[0], A[1], patch_w, channel_w))
-	cB = N.array(value_of_rfvector_at(W_mode, rf, B[0], B[1], patch_w, channel_w))
-	cC = N.array(value_of_rfvector_at(W_mode, rf, C[0], C[1], patch_w, channel_w))
-	cD = N.array(value_of_rfvector_at(W_mode, rf, D[0], D[1], patch_w, channel_w))
-
-	def absm(v):
-		return N.max(N.abs(v))
-	def chk_bound(xy):
-		lt_zero = xy[0] < 0 or xy[1] < 0
-		gt_patch = xy[0] > patch_w or xy[1] > patch_w
-		return not (lt_zero and gt_patch)		
-	ret, denom = N.zeros(3), 0
-	if absm(cA) > .005 and chk_bound(A):	ret += cA ; denom += 1
-	if absm(cB) > .005 and chk_bound(B):	ret += cB ; denom += 1
-	if absm(cC) > .005 and chk_bound(C):	ret += cC ; denom += 1
-	if absm(cD) > .005 and chk_bound(D):	ret += cD ; denom += 1
-	if denom == 0:	
-		return ret
-	else:
-		return ret/denom
-
-
- 
-def __collect_cluster_data(
-	W_mode,
-	patch_w,
-	channel_w,
-	W,
-	W_clip,
-	depickled_fits={},
-	reconstr=False,
-	csp='rgb',
-	chrm=0,
-	err=0,
-	nz=0,
-	surround=False,
-	func_model='edog',
-	):
-	'''generate cluster data'''
-	import numpy as N
-	from ..base.receptivefield import value_of_rfvector_at
-	from ..base.receptivefield import chromaticy_of_rfvector
-	from ..base.receptivefield import num_relevant_weights
-	'''https://docs.python.org/2/library/colorsys.html'''
-	import colorsys
-	if reconstr:
-		if depickled_fits['model'] == 'dog': from fit_dog  import reconstruct
-		else: 					  			 from fit_edog import reconstruct
-
-	cluster_data = []
-
-	keys = sorted(depickled_fits['fits'].keys())
-	for key in keys:
-		fit = depickled_fits['fits'][key]
-		p, n = fit['p'], fit['n']
-		'''store coords of position with maximal variance
-		for later usage of chosing prototypical filters'''
-		real_pix_center_coords = (0,0)
-		if reconstr:
-			rec = reconstruct(p, W_mode, channel_w, patch_w, W[n].shape)
-			val = value_of_rfvector_at(W_mode, rec, p[0], p[1], patch_w, channel_w)
-			real_pix_center_coords = ( N.round(p[0]) , N.round(p[1]) )
-		else:
-			val = value_of_rfvector_at(W_mode, W[n], p[0], p[1], patch_w, channel_w)			
-			real_pix_center_coords = ( N.round(p[0]) , N.round(p[1]) )
-			# val, real_pix_center_coords = __est_real_pix_coords(p, W[n], W_mode, patch_w, channel_w)
-		fit['real_pix_center_coords'] = real_pix_center_coords
-
-		c_col = __shape_weight_value(W_mode, val)
-		c_col = __transpose_zero_to_one(c_col)
-		fit['color_rgb'] = c_col
-		fit['color_yiq'] = colorsys.rgb_to_yiq(c_col[0], c_col[1], c_col[2])
-
-		if csp == 'rgb': 
-			arr = N.copy(fit['color_rgb'])
-		elif csp == 'yiq':  
-			arr = N.copy(fit['color_yiq'])
-			arr = fit['color_yiq']
-
-		s_col = __est_surround_color(p, W[n], W_mode, patch_w, channel_w)
-		s_col = __transpose_zero_to_one(s_col)
-		fit['s_color_rgb'] = s_col
-		if surround:
-			arr = N.append(arr, s_col)
-
-		if err != 0:
-			arr = N.append(arr, fit['err']*err)
-		if chrm != 0:
-			chroma = chromaticy_of_rfvector(W_mode, W[n], patch_w, channel_w)
-			arr = N.append(arr, chroma*chrm)
-		if nz != 0:
-			nonzero = num_relevant_weights(W_mode, W[n], patch_w, channel_w)
-			arr = N.append(arr, nonzero*nz)
-		cluster_data.append(arr)
-	return cluster_data
 
 
 def __apply_cluster_alg(
 	cluster_data=[],
 	alg='kmean',
 	prior_cluster_num=2,
-	t=.155,
+	whiten=False
 	):
 	pass
 	'''clustering'''
 	if alg == 'kmean':
-		from scipy.cluster.vq import whiten
-		cluster_data = whiten(cluster_data)
+		if whiten:
+			from scipy.cluster.vq import whiten
+			cluster_data = whiten(cluster_data)
 		from scipy.cluster.vq import kmeans, vq
-		centroids,_ = kmeans(cluster_data, prior_cluster_num, iter=250)
+		centroids,_ = kmeans(cluster_data, prior_cluster_num, iter=1250)
 		idx, dist = vq(cluster_data,centroids)
-		return idx, prior_cluster_num
+		return idx
 	elif alg == 'spec':
-		from sklearn import cluster
-		from sklearn.preprocessing import StandardScaler
 		X = cluster_data
-		X = StandardScaler().fit_transform(X)
+		if whiten:
+			from sklearn.preprocessing import StandardScaler
+			X = StandardScaler().fit_transform(X)
+		from sklearn import cluster
 		spectral = cluster.SpectralClustering(n_clusters=prior_cluster_num, eigen_solver='arpack')
 		spectral.fit(X)
 		import numpy as N
 		idx = spectral.labels_.astype(N.int)
-		return idx, prior_cluster_num
+		return idx
 	else:
-		'''hierarchical clustering
-		   http://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html'''
-		import scipy.cluster.hierarchy as hcluster		   
-		'''needs distance matrix: 
-		   http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.distance.pdist.html'''
-		import scipy.spatial.distance as dist
-		distmat = dist.pdist(cluster_data, 'minkowski')#'euclidean')
-		if alg == 'hflat':
-			link = hcluster.linkage(distmat)
-		elif alg == 'hcomp':
-			link = hcluster.complete(distmat)
-		elif alg == 'hweight':
-			link = hcluster.weighted(distmat)
-		elif alg == 'havg':
-			link = hcluster.average(distmat)
-		idx = hcluster.fcluster(link, t=t, criterion='distance')
-		import numpy as N
-		post_cluster_num = len(N.unique(idx))
-		print '# of channels established:', post_cluster_num
-		assert post_cluster_num<64, 'number of cluster too large to be biological meaningful'	
-		return idx, post_cluster_num
+		assert False, "Not implemented"
 
 
 def __write_clustered_fits(
@@ -819,14 +926,8 @@ def __write_clustered_fits(
 	if type(args) == argparse.Namespace:
 		cl_dict['num_clusters'] = args.n
 		cl_dict['args'] = {'alg':args.alg,
-						   'nz':args.nz,
-						   'chr':args.chr, 
-						   'err':args.err, 
-						   'csp':args.csp, 
 						   'n':args.n, 
-						   't':args.t, 
 						   'alg':args.alg, 
-						   'rec':args.rec,
 						   'fold':args.fold}
 		args_file = args.file
 	else:
@@ -836,8 +937,8 @@ def __write_clustered_fits(
 
 	depickled_fits['dic_cluster'] = cl_dict
 
-	misc = __build_filename_from_args(args)
-	fname = 'clustered_rgc_'+misc
+	fname = __extract_name_of_filepath(args.file) + '__' + __build_filename_from_args(args)
+	
 	from ..base import make_filename
 	writefilename = make_filename(args_file, fname, '.cfits', odir=odir)
 
@@ -847,5 +948,59 @@ def __write_clustered_fits(
 
 
 
+
+def __extract_name_of_filepath(fpath):
+	import os
+	return os.path.split(fpath)[-1].split('.')[0]
+
+
+def __handle_outputdir(odir, odirnosub=False):
+	if odir.find('cl/') > -1:
+		return odir
+	else:
+		if not odirnosub:
+			import os
+			mod_odir = os.path.join(odir, '../')		
+			from ..base import make_working_dir_sub		
+			cluster_dir = make_working_dir_sub(mod_odir, 'cl')
+		else:
+			import os
+			cluster_dir = odir
+			cluster_dir = os.path.join(cluster_dir, 'cl/')		
+		return cluster_dir
+
+
+def __build_filename_from_args(
+	args
+	):
+	'''compute filename'''
+	import argparse
+	str_fold = ''
+	if type(args) == argparse.Namespace:
+		if args.fold: str_fold = 'fold_'
+		str_n = str(args.n)
+		str_alg = str(args.alg)
+		str_sprd = '_sprd_' + str(int(args.sprd)) if args.sprd != -1 else ''
+		str_white = '_white_' + str(args.white) if args.white else ''
+	else:
+		if args['fold']: str_fold = 'fold_'
+		str_n = str(args['n'])
+		str_alg = str(args['alg'])
+		str_sprd = '_sprd_' + str(int(args['sprd'])) if args['sprd'] != -1 else ''
+		str_white = '_white_' + str(args['white']) if args['white'] else ''
+
+	str_thr = str_n + 'ch' + str_sprd + str_white
+	misc = str_alg + '_' + str_fold + str_thr 
+	return misc
+
+
+
+import numpy as N
+def __transpose_zero_to_one(
+	a
+	):
+	'''transpose color from [-1, 1] to [0, 1]'''
+	# return (a + 1.)/2.
+	return N.clip((a + 1.)/2., 0, 1)
 
 

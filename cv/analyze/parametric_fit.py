@@ -70,13 +70,13 @@ def fit_map_pickle_result(
 			  'map':wld_args
 			  }	
 
-	# from ..base import make_working_dir_sub
-	# work_dir = make_working_dir_sub(odir, 'fits')
+	from ..base import make_working_dir_sub
+	work_dir = make_working_dir_sub(odir, 'fits')
 
 	from ..base import make_filename
 	writefilename = make_filename(map_file,
 		'paramfits_rgc_'+model+'_'+'('+str(keys[0])+','+str(keys[-1])+')',
-		'.fits', odir=odir)
+		'.fits', odir=work_dir)
 
 	from util import pickle_fits
 	pickle_fits(writefilename+'.fits', result)	
@@ -91,10 +91,13 @@ def __fit_map(
 	maxitr,
 	ncpu,
 	debug=False,
-	debug_output_path='../'
+	debug_output_path='../',
+	value_spectrum_threshold=0.24
 	):
-	if model=='dog': 	 from dog  import bestfit
-	elif model=='edog':	 from edog import bestfit
+	if model=='dog': 	 		from dog  import bestfit
+	elif model=='edog':	 		from edog import bestfit
+	elif model=='edog_ext':		from edog import bestfit_ext as bestfit
+	elif model=='edog_ext2':	from edog import bestfit_ext2 as bestfit
 
 	def func(chunk, patch_w, channel_w, mode):
 		key = chunk['n']
@@ -120,17 +123,22 @@ def __fit_map(
 		abs_max = N.max( abs_rf )
 		abs_min = N.min( abs_rf )
 		value_spectrum = abs_max - abs_min
-		if value_spectrum > 0.2 and \
+		if value_spectrum > value_spectrum_threshold and \
 		 not is_close_to_zero(rf, verbose=False, atol=1e-02):
 			data.append({'n':key, 'rf':rf})
-
-	from util import multiproc_fit2
-	fits = multiproc_fit2(
-		nprocs=ncpu, 
-		verbose=True, 
-		data=data, 
-		func=func, 
-		args=(map_as_dict['vis'], map_as_dict['vis']**2, map_as_dict['mode']))
+	if ncpu == 1:
+		fits = []
+		for rfmat in data:
+			fits.append(
+				[func(rfmat, map_as_dict['vis'], map_as_dict['vis']**2, map_as_dict['mode'])])
+	else:
+		from util import multiproc_fit2
+		fits = multiproc_fit2(
+			nprocs=ncpu, 
+			verbose=True, 
+			data=data, 
+			func=func, 
+			args=(map_as_dict['vis'], map_as_dict['vis']**2, map_as_dict['mode']))
 	return fits
 
 
@@ -202,7 +210,8 @@ def __rec_map(
 	):
 	import numpy as N
 	if model=='dog': 	from dog  import reconstruct
-	else:			 	from edog import reconstruct
+	elif model=='edog': from edog import reconstruct
+	else:			 	from edog import reconstruct_ext as reconstruct
 
 	rec_W = N.zeros(map_as_dict['W'].shape)
 	for key in fits:

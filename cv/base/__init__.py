@@ -190,7 +190,7 @@ def writer_directory_str(
 	):
 	from datetime import date
 	datestr = str(date.today())
-	if kwargs['which']=='rgc':
+	if kwargs['which']=='rgc' or kwargs['which']=='drgc':
 		misc_str = '_clip' if kwargs['clip'] else ''
 		dim_str = str(kwargs['vis'])+'x'+\
 				  str(kwargs['hid'])
